@@ -204,8 +204,9 @@ impl Blynk {
             self.client.set_read_timeout(Duration::from_millis(5));
 
             if let Ok(msg) = self.client.read() {
-                // TODO: add error handling
-                self.process(msg);
+                if let Err(err) = self.process(msg) {
+                    error!("Problem handling req from API: {}", err);
+                }
             }
         }
     }
