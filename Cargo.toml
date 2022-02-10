@@ -1,6 +1,6 @@
 [package]
 name = "blynk_io"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "Blynk.io streaming API integration in Rust"
@@ -9,8 +9,8 @@ description = "Blynk.io streaming API integration in Rust"
 
 [dependencies]
 log = "0.4"
-restruct = "0.1.1"
-restruct_derive = "0.1.1"
+restruct = { git = "https://github.com/lukaslueg/restruct" }
+restruct_derive = { git = "https://github.com/lukaslueg/restruct" }
 num_enum = "0.5.6"
 simple_logger = {version = "2.1.0", optional = true }
 
