@@ -18,17 +18,30 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn set_read_timeout(&self, duration: Duration) {
+    pub fn set_read_timeout(&mut self, duration: Duration) {
         if let Ok(stream) = self.stream() {
             stream
                 .set_read_timeout(Some(duration))
                 .expect("read timeout problem");
         }
     }
+}
 
-    pub fn read(&mut self) -> Result<Message, Box<dyn Error>> {
-        let reader: &mut BufReader<TcpStream> =
-            self.reader.as_mut().ok_or("Unable to access reader")?;
+pub trait Protocol {
+    type T: std::io::Read + std::io::Write;
+
+    fn set_reader(&mut self, reader: BufReader<Self::T>);
+    fn msg_id(&mut self) -> u16;
+    fn disconnect(&mut self);
+    fn reader(&mut self) -> Option<&mut BufReader<Self::T>>;
+
+    fn set_stream(&mut self, stream: Self::T) {
+        self.set_reader(BufReader::new(stream));
+    }
+
+    fn read(&mut self) -> Result<Message, Box<dyn Error>> {
+        let reader = self.reader().ok_or("Unable to access reader")?;
+
         let buf = reader.fill_buf()?;
         if buf.is_empty() {
             return Err("No message to process".into());
@@ -47,41 +60,19 @@ impl Client {
         Ok(msg)
     }
 
-    fn msg_id(&mut self) -> u16 {
-        self.msg_id += 1;
-        self.msg_id
-    }
-
-    pub fn set_stream(&mut self, stream: TcpStream) {
-        self.reader = Some(BufReader::new(stream));
-    }
-
-    fn stream(&self) -> Result<&TcpStream, Box<dyn Error>> {
-        if let Some(r) = self.reader.as_ref() {
-            return Ok(r.get_ref());
+    fn stream(&mut self) -> Result<&mut Self::T, Box<dyn Error>> {
+        if let Some(r) = self.reader() {
+            return Ok(r.get_mut());
         }
         Err("Stream not available".into())
     }
 
-    pub fn disconnect(&mut self) {
-        if let Ok(stream) = self.stream() {
-            stream
-                .shutdown(Shutdown::Both)
-                .unwrap_or_else(|err| error!("shutdown call failed, with err {}", err));
-        }
-        self.msg_id = 0;
-    }
-
-    pub fn login(&mut self, token: &str) -> Result<(), Box<dyn Error>> {
+    fn login(&mut self, token: &str) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(MessageType::Login, self.msg_id(), None, None, vec![token]);
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn heartbeat(
-        &mut self,
-        heartbeat: Duration,
-        rcv_buffer: u16,
-    ) -> Result<(), Box<dyn Error>> {
+    fn heartbeat(&mut self, heartbeat: Duration, rcv_buffer: u16) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(
             MessageType::Internal,
             self.msg_id(),
@@ -99,15 +90,15 @@ impl Client {
             ],
         );
 
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn ping(&mut self) -> Result<(), Box<dyn Error>> {
+    fn ping(&mut self) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(MessageType::Ping, self.msg_id(), None, None, vec![]);
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn response(&self, status: u16, msg_id: u16) -> Result<(), Box<dyn Error>> {
+    fn response(&mut self, status: u16, msg_id: u16) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(
             MessageType::Rsp,
             msg_id,
@@ -115,10 +106,10 @@ impl Client {
             None,
             vec![&status.to_string()],
         );
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn virtual_write(&mut self, v_pin: u8, val: &str) -> Result<(), Box<dyn Error>> {
+    fn virtual_write(&mut self, v_pin: u8, val: &str) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(
             MessageType::Hw,
             self.msg_id(),
@@ -126,10 +117,10 @@ impl Client {
             None,
             vec!["vw", &v_pin.to_string(), val],
         );
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn virtual_sync(&mut self, pins: Vec<u32>) -> Result<(), Box<dyn Error>> {
+    fn virtual_sync(&mut self, pins: Vec<u32>) -> Result<(), Box<dyn Error>> {
         let pins: String = pins
             .into_iter()
             .map(|x| std::char::from_digit(x, 10).unwrap())
@@ -142,10 +133,10 @@ impl Client {
             None,
             vec!["vr", &pins],
         );
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn email(&mut self, to: &str, subject: &str, body: &str) -> Result<(), Box<dyn Error>> {
+    fn email(&mut self, to: &str, subject: &str, body: &str) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(
             MessageType::Email,
             self.msg_id(),
@@ -153,20 +144,20 @@ impl Client {
             None,
             vec![to, subject, body],
         );
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn tweet(&mut self, msg: &str) -> Result<(), Box<dyn Error>> {
+    fn tweet(&mut self, msg: &str) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(MessageType::Tweet, self.msg_id(), None, None, vec![msg]);
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn notify(&mut self, msg: &str) -> Result<(), Box<dyn Error>> {
+    fn notify(&mut self, msg: &str) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(MessageType::Notify, self.msg_id(), None, None, vec![msg]);
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn set_property(&mut self, pin: u8, prop: &str, val: &str) -> Result<(), Box<dyn Error>> {
+    fn set_property(&mut self, pin: u8, prop: &str, val: &str) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(
             MessageType::Property,
             self.msg_id(),
@@ -174,54 +165,163 @@ impl Client {
             None,
             vec![&pin.to_string(), prop, val],
         );
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
     }
 
-    pub fn internal(&mut self, data: Vec<&str>) -> Result<(), Box<dyn Error>> {
+    fn internal(&mut self, data: Vec<&str>) -> Result<(), Box<dyn Error>> {
         let msg = Message::new(MessageType::Internal, self.msg_id(), None, None, data);
-        send(self.stream()?, msg.serialize())
+        self.send(msg.serialize())
+    }
+
+    fn send(&mut self, msg: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        let mut retries = conf::RETRIES_TX_MAX_NUM;
+        let stream = self.stream()?;
+        while retries > 0 {
+            if let Err(err) = stream.write(&msg) {
+                eprintln!("Problem sending!: {}", err);
+                retries -= 1;
+                thread::sleep(conf::RETRIES_TX_DELAY);
+                continue;
+            }
+            if let Err(err) = stream.flush() {
+                eprintln!("Problem sending!: {}", err);
+                retries -= 1;
+                thread::sleep(conf::RETRIES_TX_DELAY);
+                continue;
+            }
+            debug!("Sent message, awaiting reply...!!");
+            return Ok(());
+        }
+        Err("Unable to send the message".into())
     }
 }
 
-fn send(mut stream: &TcpStream, msg: Vec<u8>) -> Result<(), Box<dyn Error>> {
-    let mut retries = conf::RETRIES_TX_MAX_NUM;
-    while retries > 0 {
-        if let Err(err) = stream.write(&msg) {
-            eprintln!("Problem sending!: {}", err);
-            retries -= 1;
-            thread::sleep(conf::RETRIES_TX_DELAY);
-            continue;
-        }
-        if let Err(err) = stream.flush() {
-            eprintln!("Problem sending!: {}", err);
-            retries -= 1;
-            thread::sleep(conf::RETRIES_TX_DELAY);
-            continue;
-        }
-        println!("Sent message, awaiting reply...!!");
-        return Ok(());
+impl Protocol for Client {
+    type T = TcpStream;
+
+    fn set_reader(&mut self, reader: BufReader<TcpStream>) {
+        self.reader = Some(reader);
     }
-    Err("Unable to send the message".into())
+
+    fn reader(&mut self) -> Option<&mut BufReader<TcpStream>> {
+        self.reader.as_mut()
+    }
+
+    fn msg_id(&mut self) -> u16 {
+        self.msg_id += 1;
+        self.msg_id
+    }
+
+    fn disconnect(&mut self) {
+        if let Ok(stream) = self.stream() {
+            stream
+                .shutdown(Shutdown::Both)
+                .unwrap_or_else(|err| error!("shutdown call failed, with err {}", err));
+        }
+        self.msg_id = 0;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Cursor, SeekFrom};
+
+    pub struct FakeClient {
+        msg_id: u16,
+        reader: Option<BufReader<Cursor<Vec<u8>>>>,
+    }
+
+    impl Protocol for FakeClient {
+        type T = Cursor<Vec<u8>>;
+
+        fn set_reader(&mut self, _reader: BufReader<Self::T>) {}
+
+        fn reader(&mut self) -> Option<&mut BufReader<Self::T>> {
+            return self.reader.as_mut();
+        }
+
+        fn msg_id(&mut self) -> u16 {
+            self.msg_id += 1;
+            self.msg_id
+        }
+
+        fn disconnect(&mut self) {
+            self.msg_id = 0;
+        }
+    }
 
     #[test]
-    fn msg_id_incremeneted_on_send() {}
+    fn msg_id_incremeneted_on_send() {
+        let mut client = Client {
+            msg_id: 3,
+            reader: None,
+        };
+        client.ping().unwrap_or_default();
+        assert_eq!(4, client.msg_id)
+    }
     #[test]
-    fn msg_id_customized() {}
+    fn msg_id_customized() {
+        let mut client = Client {
+            msg_id: 3,
+            reader: None,
+        };
+        client.response(200, 42).unwrap_or_default();
+        // inspect the message
+        assert_eq!(3, client.msg_id)
+    }
     #[test]
-    fn propagate_send_err() {}
+    fn propagate_send_err() {
+        let mut client = Client {
+            msg_id: 3,
+            reader: None,
+        };
+        assert!(client.ping().is_err());
+    }
+    #[test]
+    fn ping_generates_seralized_message() {
+        let reader = BufReader::with_capacity(10, Cursor::new(vec![0; 10]));
+        let mut client = FakeClient {
+            msg_id: 0,
+            reader: Some(reader),
+        };
 
-    #[test]
-    fn disconnect_with_no_stream() {}
+        // intercept message into fake client
+        client.ping().unwrap();
 
+        let mut reader = client.reader.unwrap();
+        reader.seek(SeekFrom::Start(0)).unwrap(); // rewind the buffer
+        let buf = reader.fill_buf().unwrap();
+
+        let msg = Message::new(MessageType::Ping, 1, None, None, vec![""]);
+        let data = msg.serialize();
+        // compare generated headers
+        assert_eq!(&data[..5], &buf[..5]);
+    }
     #[test]
-    fn ping_generates_seralized_message() {}
+    fn read_empty_buffer_errors() {
+        // try to read when the buffer is empty
+        let reader = BufReader::with_capacity(0, Cursor::new(vec![0]));
+        let mut client = FakeClient {
+            msg_id: 0,
+            reader: Some(reader),
+        };
+        let err = client.read().err().unwrap();
+        assert_eq!("No message to process", err.to_string());
+    }
     #[test]
-    fn read_empty_buffer() {}
-    #[test]
-    fn read_message() {}
+    fn read_message() {
+        // succesful message read
+
+        // put fake message into the buff
+        let msg = Message::new(MessageType::Hw, 1, None, None, vec![""]);
+        let reader = BufReader::with_capacity(10, Cursor::new(msg.serialize()));
+
+        // intercept message into fake client
+        let mut client = FakeClient {
+            msg_id: 0,
+            reader: Some(reader),
+        };
+        assert!(client.read().is_ok());
+    }
 }

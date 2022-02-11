@@ -30,7 +30,7 @@ impl Event for EventsHandler {
         }
     }
 
-    fn handle_vpin_write(&mut self, client: &mut Client, pin_num: u8, data: &str) {
+    fn handle_vpin_write(&mut self, _client: &mut Client, pin_num: u8, data: &str) {
         info!("Wanting to write the state of pin {:?} {:?}", pin_num, data);
     }
 }

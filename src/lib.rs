@@ -16,7 +16,7 @@ mod client;
 mod config;
 mod message;
 
-pub use self::client::Client;
+pub use self::client::{Client, Protocol};
 pub use self::config::Config;
 use self::message::{Message, MessageType, ProtocolStatus};
 
