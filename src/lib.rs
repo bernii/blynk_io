@@ -44,26 +44,26 @@ mod conf {
 pub trait Event {
     fn handle_connect(&mut self, client: &mut Client) {}
     fn handle_disconnect(&mut self) {}
-    fn handle_internal(&mut self, client: &mut Client) {}
+    fn handle_internal(&mut self, client: &mut Client, data: &[String]) {}
     fn handle_vpin_read(&mut self, client: &mut Client, pin_num: u8) {}
     fn handle_vpin_write(&mut self, client: &mut Client, pin_num: u8, data: &str) {}
 }
 
-pub struct Blynk {
+pub struct Blynk<'a> {
     conn_state: ConnectionState,
     auth_token: String,
 
     client: Client,
 
-    events_hook: Option<Box<dyn Event>>,
+    events_hook: Option<&'a mut dyn Event>,
 
     last_rcv_time: Instant,
     last_ping_time: Instant,
     last_send_time: Instant,
 }
 
-impl Blynk {
-    pub fn new(auth_token: String) -> Blynk {
+impl<'a> Blynk<'a> {
+    pub fn new(auth_token: String) -> Blynk<'a> {
         Blynk {
             conn_state: ConnectionState::Disconnected,
             auth_token,
@@ -98,8 +98,7 @@ impl Blynk {
         }
     }
 
-    pub fn set_events_hook<E: Event + 'static>(&mut self, hook: E) {
-        let hook = Box::new(hook);
+    pub fn set_events_hook(&mut self, hook: &'a mut dyn Event) {
         self.events_hook = Some(hook);
     }
 
@@ -220,9 +219,7 @@ impl Blynk {
         if let Some(hook) = &mut self.events_hook {
             match msg.mtype {
                 MessageType::Internal => {
-                    // TODO XXX
-                    // self.call_handler("{}{}".format(self._INTERNAL, msg_args[0]), msg_args[1:])
-                    hook.handle_internal(&mut self.client);
+                    hook.handle_internal(&mut self.client, &msg.body[1..]);
                 }
                 MessageType::Hw | MessageType::Bridge => {
                     if msg.body.len() >= 3 && msg.body.get(0).unwrap() == "vw" {
@@ -242,12 +239,67 @@ impl Blynk {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct EventsHandler {
+        pin_num: u8,
+        data: String,
+    }
+
+    impl Event for EventsHandler {
+        fn handle_vpin_read(&mut self, _client: &mut Client, pin_num: u8) {
+            self.pin_num = pin_num
+        }
+
+        fn handle_vpin_write(&mut self, _client: &mut Client, pin_num: u8, data: &str) {
+            self.pin_num = pin_num;
+            self.data = data.to_string();
+        }
+
+        fn handle_internal(&mut self, _client: &mut Client, data: &[String]) {
+            self.data = data.join(" ");
+        }
+    }
+
     #[test]
-    fn calls_handler_if_hook_provided() {}
+    fn calls_vpinread_handler_with_params() {
+        let msg = Message::new(MessageType::Hw, 1, None, None, vec!["vr", "22"]);
+        let mut blynk = Blynk::new("abc".to_string());
+
+        let mut handler: EventsHandler = Default::default();
+        blynk.set_events_hook(&mut handler);
+        blynk.process(msg).unwrap();
+
+        assert_eq!(22, handler.pin_num);
+    }
     #[test]
-    fn calls_vpinwrite_handler_with_params() {}
+    fn calls_vpinwrite_handler_with_params() {
+        let msg = Message::new(MessageType::Hw, 1, None, None, vec!["vw", "42", "my-val"]);
+        let mut blynk = Blynk::new("abc".to_string());
+
+        let mut handler: EventsHandler = Default::default();
+        blynk.set_events_hook(&mut handler);
+        blynk.process(msg).unwrap();
+
+        assert_eq!(42, handler.pin_num);
+        assert_eq!("my-val", handler.data);
+    }
     #[test]
-    fn calls_vpinread_handler_with_params() {}
-    #[test]
-    fn calls_internal_handler_with_params() {}
+    fn calls_internal_handler_with_params() {
+        let msg = Message::new(
+            MessageType::Internal,
+            1,
+            None,
+            None,
+            vec!["_internal", "hello", "world"],
+        );
+        let mut blynk = Blynk::new("abc".to_string());
+
+        let mut handler: EventsHandler = Default::default();
+        blynk.set_events_hook(&mut handler);
+        blynk.process(msg).unwrap();
+
+        assert_eq!("hello world", handler.data);
+    }
 }

@@ -41,7 +41,7 @@
     <a href="https://github.com/bernii/blynk_io"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <a href="#getting-started">Quickstart</a>
+    <a href="https://crates.io/crates/blynk_io">Rust Crate</a>
     ·
     <a href="https://github.com/bernii/blynk_io/issues">Report Bug</a>
     ·
@@ -169,6 +169,10 @@ Make sure you have your `rust` environment configurated
 <!-- ROADMAP -->
 ## Roadmap
 
+- [x] add tests
+- [ ] add rustdocs
+- [ ] better error generation & handling
+- [ ] add async support once it's stable in esp-rs
 - [ ] add async support once it's stable in esp-rs
 - [ ] better test coverage
 

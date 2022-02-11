@@ -48,8 +48,8 @@ fn main() {
 
     let mut blynk = Blynk::new(config.token);
 
-    let handler = EventsHandler { i: Instant::now() };
-    blynk.set_events_hook(handler);
+    let mut handler = EventsHandler { i: Instant::now() };
+    blynk.set_events_hook(&mut handler);
 
     loop {
         blynk.run();
