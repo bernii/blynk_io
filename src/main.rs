@@ -46,7 +46,8 @@ fn main() {
     println!("Using auth token for {}", config.token);
     println!("Connecting to {}:{}", config.server, config.port);
 
-    let mut blynk = Blynk::new(config.token);
+    let mut blynk = Blynk::new(config.token.clone());
+    blynk.set_config(config);
 
     let mut handler = EventsHandler { i: Instant::now() };
     blynk.set_events_hook(&mut handler);

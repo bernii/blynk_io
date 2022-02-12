@@ -171,10 +171,11 @@ Make sure you have your `rust` environment configurated
 
 - [x] add tests
 - [ ] add rustdocs
+- [ ] CI integration with GithHub
 - [ ] better error generation & handling
 - [ ] add async support once it's stable in esp-rs
-- [ ] add async support once it's stable in esp-rs
 - [ ] better test coverage
+- [ ] ssl implementation
 
 See the [open issues](https://github.com/bernii/blynk_io/issues) for a full list of proposed features (and known issues).
 

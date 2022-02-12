@@ -12,6 +12,9 @@ use crate::message::{Message, MessageType, ProtocolHeader};
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Default)]
+/// Implements state of the connection abstraction with Blynk.io servers.
+/// Implementes protocol methods that you can use in order to
+/// communicate with those servers
 pub struct Client {
     msg_id: u16,
     reader: Option<BufReader<TcpStream>>,
@@ -27,6 +30,7 @@ impl Client {
     }
 }
 
+/// Provides implementation of all known blynk.io api protocol methods
 pub trait Protocol {
     type T: std::io::Read + std::io::Write;
 

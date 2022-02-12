@@ -7,6 +7,16 @@ pub struct Config {
     pub port: u64,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            token: "".to_string(),
+            server: "blynk-cloud.com".to_string(),
+            port: 80,
+        }
+    }
+}
+
 impl Config {
     pub fn new<T>(mut args: T) -> Result<Self, &'static str>
     where

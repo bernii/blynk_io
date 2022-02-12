@@ -2,6 +2,7 @@ use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
 use std::error::Error;
 
+/// Represents all type of mesasges that are part of the blynk protocol
 #[derive(TryFromPrimitive, Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum MessageType {
@@ -19,10 +20,17 @@ pub enum MessageType {
     Redirect = 41,
 }
 
+/// Represtantion of Blynk Header structure. It consists of following elements:
+/// - message type (1 byte)
+/// - message id (2 bytes)
+/// - payload zie (2 bytes)
+///
+/// The header is followed by payload (is payload size is > 0)
 #[derive(restruct_derive::Struct)]
 #[fmt = "!BHH"]
 pub struct ProtocolHeader;
 
+/// Possible protocol statuses
 #[derive(TryFromPrimitive, Debug)]
 #[repr(u16)]
 pub enum ProtocolStatus {
@@ -32,6 +40,7 @@ pub enum ProtocolStatus {
     VpinMaxNum = 32,
 }
 
+/// Represents a single message (in our out) between client and blynk servers
 #[derive(Debug)]
 pub struct Message {
     pub mtype: MessageType,
@@ -59,6 +68,7 @@ impl Message {
         }
     }
 
+    /// Converts the `Message` into byte array
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = self.body.join("\0").as_bytes().to_vec();
 
@@ -70,6 +80,8 @@ impl Message {
         buffer
     }
 
+    /// Converts byte array into Message object or returns error
+    /// if it's not possible
     pub fn deserilize(mut rsp_data: &[u8]) -> Result<Message, Box<dyn Error>> {
         let mut msg_body = vec![];
         let (msg_type_raw, msg_id, h_data) = ProtocolHeader::read_from(&mut rsp_data)?;

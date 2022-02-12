@@ -1,7 +1,26 @@
-//! # Blynk.io Library
+//! # blynk_io
 //!
-//! `blynk_io` is naive implementation of Blynk.io protocol
-//! with intention of use in embedded systems. Tested mainly with esp32
+//! `blynk_io` is a naive implementation of Blynk.io protocol
+//! with intention of use in embedded systems. The intention is to use it
+//! with esp32 devices in conjuction with esp-rs project.
+//!
+//! The `rust` implementation has been based on the official
+//! python client implemetation since good blynk.io API docs are not avaiable.
+//!
+//! # Example usage
+//!
+//! ```ignore
+//! use blynk_io::*;
+//! ...
+//! let mut blynk = Blynk::new("AUTH_TOKEN".to_string());
+//!
+//! fn main() {
+//!    loop {
+//!        blynk.run();
+//!        thread::sleep(Duration::from_millis(50));
+//!    }
+//! }
+//! ```
 //!
 
 use std::net::{TcpStream, ToSocketAddrs};
@@ -20,6 +39,7 @@ pub use self::client::{Client, Protocol};
 pub use self::config::Config;
 use self::message::{Message, MessageType, ProtocolStatus};
 
+/// Represents the current state of connection to Blynk servers
 pub enum ConnectionState {
     Disconnected,
     Connecting,
@@ -27,6 +47,13 @@ pub enum ConnectionState {
     Authenticated,
 }
 
+impl Default for ConnectionState {
+    fn default() -> Self {
+        ConnectionState::Disconnected
+    }
+}
+
+/// Various defaults, mostly around connection timeouts and retry logic
 mod conf {
     use std::time::Duration;
 
@@ -40,6 +67,20 @@ mod conf {
     pub const HEARTBEAT_PERIOD: Duration = Duration::from_secs(5);
 }
 
+/// Used in order to implement handler logic for requests coming
+/// from Blynk.io servers and various transitions between connection states.
+///
+/// # Example
+/// ```
+/// use blynk_io::*;
+///
+/// struct EventsHandler;
+/// impl Event for EventsHandler {
+///     fn handle_vpin_write(&mut self, _client: &mut Client, pin_num: u8, data: &str) {
+///         println!("pin {:?} write {:?}", pin_num, data);
+///     }
+/// }
+/// ```
 #[allow(unused_variables)]
 pub trait Event {
     fn handle_connect(&mut self, client: &mut Client) {}
@@ -49,9 +90,23 @@ pub trait Event {
     fn handle_vpin_write(&mut self, client: &mut Client, pin_num: u8, data: &str) {}
 }
 
+/// Main API for interacting with Blynk.io platform. Use it in order to
+/// keep connectivity with the Blynk servers and handle the protocol activity.
+///
+/// # Example
+/// ```
+/// use blynk_io::Blynk;
+///
+/// let mut blynk = Blynk::new("BYNK TOKEN".to_string());
+/// loop {
+///     blynk.run();
+///     break; // remove this in your actual program
+/// }
+/// ```
+
 pub struct Blynk<'a> {
     conn_state: ConnectionState,
-    auth_token: String,
+    config: Config,
 
     client: Client,
 
@@ -63,10 +118,17 @@ pub struct Blynk<'a> {
 }
 
 impl<'a> Blynk<'a> {
+    /// Returns the Blynk client initalized with API token
+    ///
+    /// # Arguments
+    /// * `auth_token` - A string that holds the Blynk API token
     pub fn new(auth_token: String) -> Blynk<'a> {
-        Blynk {
+        Self {
             conn_state: ConnectionState::Disconnected,
-            auth_token,
+            config: Config {
+                token: auth_token,
+                ..Default::default()
+            },
 
             client: Client::default(),
             events_hook: None,
@@ -77,11 +139,22 @@ impl<'a> Blynk<'a> {
         }
     }
 
-    pub fn client(&mut self) -> &mut Client {
+    pub fn set_config(&mut self, config: Config) {
+        self.config = config;
+    }
+
+    /// Returns the low level Client abstraction that is implements
+    /// the protocol and is responsible for the communication
+    fn client(&mut self) -> &mut Client {
         self.last_send_time = Instant::now();
         &mut self.client
     }
 
+    /// Performs event loop run that is reposnible for:
+    /// - checking the connection state
+    /// - reconnecting if connection failed
+    /// - reading any pending responses from blynk servers
+    /// - executing events hooks if those are provided
     pub fn run(&mut self) {
         if !matches!(self.conn_state, ConnectionState::Authenticated) {
             error!("Not connected, trying reconnect");
@@ -98,14 +171,28 @@ impl<'a> Blynk<'a> {
         }
     }
 
+    /// Sets the events hook for incoming events from the Blynk platform
+    ///
+    /// See `Event` trait documentation for example implementation
     pub fn set_events_hook(&mut self, hook: &'a mut dyn Event) {
         self.events_hook = Some(hook);
     }
 
+    /// Connects to Blynk servers
+    ///
+    /// Performs authentication and sets up heart beat with the servers
+    ///
+    /// Calls hook in event of succseful handshake
     fn connect(&mut self) -> Result<(), Box<dyn Error>> {
         self.conn_state = ConnectionState::Connecting;
 
-        let addrs = "blynk-cloud.com:80".to_socket_addrs()?.collect::<Vec<_>>();
+        let host_port = vec![
+            self.config.server.clone(),
+            ":".to_string(),
+            self.config.port.to_string(),
+        ]
+        .join("");
+        let addrs = host_port.to_socket_addrs()?.collect::<Vec<_>>();
         let addr = addrs.first().ok_or("Problem resolving server addr")?;
 
         let stream = TcpStream::connect_timeout(addr, conf::SOCK_TIMEOUT)?;
@@ -113,7 +200,7 @@ impl<'a> Blynk<'a> {
 
         info!("Successfully connected to blynk server");
 
-        self.authenticate(&self.auth_token.clone())?;
+        self.authenticate(&self.config.token.clone())?;
         self.set_heartbeat()?;
 
         self.last_rcv_time = Instant::now();
@@ -124,7 +211,10 @@ impl<'a> Blynk<'a> {
         Ok(())
     }
 
-    pub fn disconnect(&mut self, msg: &str) {
+    /// Disconnects from the Blynk servers
+    ///
+    /// Calls disconnect hook
+    fn disconnect(&mut self, msg: &str) {
         if let Some(hook) = &mut self.events_hook {
             hook.handle_disconnect();
         }
@@ -172,7 +262,7 @@ impl<'a> Blynk<'a> {
         Ok(())
     }
 
-    pub fn is_server_alive(&mut self) -> bool {
+    fn is_server_alive(&mut self) -> bool {
         let hbeat_ms = conf::HEARTBEAT_PERIOD.as_millis();
         let rcv_delta = self.last_rcv_time.elapsed().as_millis();
         let ping_delta = self.last_ping_time.elapsed().as_millis();
@@ -196,7 +286,7 @@ impl<'a> Blynk<'a> {
         true
     }
 
-    pub fn read_response(&mut self) {
+    fn read_response(&mut self) {
         let start = Instant::now();
         while start.elapsed() <= conf::READ_TIMEOUT {
             self.last_rcv_time = Instant::now();
