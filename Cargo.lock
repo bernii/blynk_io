@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "blynk_io"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "log",
  "num_enum",
@@ -249,8 +249,9 @@ dependencies = [
 
 [[package]]
 name = "restruct"
-version = "0.1.1"
-source = "git+https://github.com/lukaslueg/restruct#6d2e0c42e1dcd4542dd7b107bfb725d2d2a8c21b"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d5c66c4f0cc19cc5e0884bc0cff8c5f8d81d1f6b8ce9818f181d767dcbfc9b2"
 dependencies = [
  "pest",
  "pest_derive",
@@ -261,8 +262,9 @@ dependencies = [
 
 [[package]]
 name = "restruct_derive"
-version = "0.1.1"
-source = "git+https://github.com/lukaslueg/restruct#6d2e0c42e1dcd4542dd7b107bfb725d2d2a8c21b"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd34afc5c07860111e78f7b473e9460d1c19b208d04bf13c3d0f44b3a8569241"
 dependencies = [
  "restruct",
 ]
