@@ -23,10 +23,10 @@
 //! ```
 //!
 
+use std::error::Error;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
-use std::error::Error;
 use std::thread;
 
 use log::*;
@@ -89,6 +89,54 @@ pub trait Event {
     fn handle_vpin_read(&mut self, client: &mut Client, pin_num: u8) {}
     fn handle_vpin_write(&mut self, client: &mut Client, pin_num: u8, data: &str) {}
 }
+
+use std::result;
+use std::{fmt, io};
+
+#[derive(Debug)]
+pub enum BlynkError {
+    Io(io::Error),
+    Dns,
+    MessageSend,
+    EmptyBuffer,
+    Redirection,
+    HeartbeatSet(ProtocolStatus),
+    InvalidAuthToken,
+    InvalidMessageId,
+    InvalidMessageHeader,
+    InvalidMessageBody,
+    StreamIsNone,
+    ReaderNotAvailable,
+}
+
+impl fmt::Display for BlynkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            BlynkError::Io(ref err) => err.fmt(f),
+            BlynkError::Dns => write!(f, "Problem resolving host"),
+            BlynkError::MessageSend => write!(f, "Problem sending message"),
+            BlynkError::EmptyBuffer => write!(f, "No message to process"),
+            BlynkError::Redirection => write!(f, "Redirection problem"),
+            BlynkError::HeartbeatSet(ref ps) => write!(f, "Problem setting heartbeat {:?}", ps),
+            BlynkError::InvalidAuthToken => write!(f, "Invalid auth token"),
+            BlynkError::InvalidMessageId => write!(f, "Message id is zero"),
+            BlynkError::InvalidMessageHeader => write!(f, "Problem parsing message header"),
+            BlynkError::InvalidMessageBody => write!(f, "Malformed message body"),
+            BlynkError::StreamIsNone => write!(f, "Stream not available"),
+            BlynkError::ReaderNotAvailable => write!(f, "Unable to access reader"),
+        }
+    }
+}
+
+impl Error for BlynkError {}
+
+impl From<io::Error> for BlynkError {
+    fn from(err: io::Error) -> BlynkError {
+        BlynkError::Io(err)
+    }
+}
+
+type Result<T> = result::Result<T, BlynkError>;
 
 /// Main API for interacting with Blynk.io platform. Use it in order to
 /// keep connectivity with the Blynk servers and handle the protocol activity.
@@ -183,7 +231,7 @@ impl<'a> Blynk<'a> {
     /// Performs authentication and sets up heart beat with the servers
     ///
     /// Calls hook in event of succseful handshake
-    fn connect(&mut self) -> Result<(), Box<dyn Error>> {
+    fn connect(&mut self) -> Result<()> {
         self.conn_state = ConnectionState::Connecting;
 
         let host_port = vec![
@@ -193,7 +241,7 @@ impl<'a> Blynk<'a> {
         ]
         .join("");
         let addrs = host_port.to_socket_addrs()?.collect::<Vec<_>>();
-        let addr = addrs.first().ok_or("Problem resolving server addr")?;
+        let addr = addrs.first().ok_or(BlynkError::Dns)?;
 
         let stream = TcpStream::connect_timeout(addr, conf::SOCK_TIMEOUT)?;
         self.client.set_stream(stream);
@@ -226,7 +274,7 @@ impl<'a> Blynk<'a> {
         thread::sleep(conf::RECONNECT_SLEEP);
     }
 
-    fn authenticate(&mut self, token: &str) -> Result<(), Box<dyn Error>> {
+    fn authenticate(&mut self, token: &str) -> Result<()> {
         info!("Authenticating device...");
         self.conn_state = ConnectionState::Authentiacting;
         self.client().login(token)?;
@@ -235,10 +283,10 @@ impl<'a> Blynk<'a> {
         if !matches!(msg.status, Some(ProtocolStatus::StatusOk)) {
             match (msg.status.unwrap(), msg.mtype) {
                 (ProtocolStatus::StatusInvalidToken, _) => {
-                    return Err("Invalid auth token".into());
+                    return Err(BlynkError::InvalidAuthToken);
                 }
                 (_, MessageType::Redirect) => {
-                    return Err("Redirection problem".into());
+                    return Err(BlynkError::Redirection);
                 }
                 (_, _) => panic!("Critical error"),
             }
@@ -249,7 +297,7 @@ impl<'a> Blynk<'a> {
         Ok(())
     }
 
-    fn set_heartbeat(&mut self) -> Result<(), Box<dyn Error>> {
+    fn set_heartbeat(&mut self) -> Result<()> {
         info!("Setting heartbeat");
         self.client().heartbeat(conf::HEARTBEAT_PERIOD, 1024)?;
 
@@ -257,7 +305,7 @@ impl<'a> Blynk<'a> {
         let msg = self.client.read()?;
 
         if !matches!(msg.status, Some(ProtocolStatus::StatusOk)) {
-            return Err(format!("Problem setting heartbeat {:?}", msg.status.unwrap()).into());
+            return Err(BlynkError::HeartbeatSet(msg.status.unwrap()));
         }
         Ok(())
     }
@@ -300,7 +348,7 @@ impl<'a> Blynk<'a> {
         }
     }
 
-    fn process(&mut self, msg: Message) -> Result<(), Box<dyn Error>> {
+    fn process(&mut self, msg: Message) -> Result<()> {
         if let MessageType::Ping = msg.mtype {
             self.client
                 .response(ProtocolStatus::StatusOk as u16, msg.id)?;

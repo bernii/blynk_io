@@ -1,6 +1,7 @@
+use crate::BlynkError;
+use crate::Result as MyResult;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
-use std::error::Error;
 
 /// Represents all type of mesasges that are part of the blynk protocol
 #[derive(TryFromPrimitive, Debug, Clone, Copy)]
@@ -82,15 +83,16 @@ impl Message {
 
     /// Converts byte array into Message object or returns error
     /// if it's not possible
-    pub fn deserilize(mut rsp_data: &[u8]) -> Result<Message, Box<dyn Error>> {
+    pub fn deserilize(mut rsp_data: &[u8]) -> MyResult<Message> {
         let mut msg_body = vec![];
         let (msg_type_raw, msg_id, h_data) = ProtocolHeader::read_from(&mut rsp_data)?;
 
         if msg_id == 0 {
-            return Err("Invalid msg_id = 0".into());
+            return Err(BlynkError::InvalidMessageId);
         }
 
-        let msg_type = MessageType::try_from(msg_type_raw)?;
+        let msg_type =
+            MessageType::try_from(msg_type_raw).map_err(|_e| BlynkError::InvalidMessageHeader)?;
         let mut size = None;
         let mut status = None;
 
@@ -103,7 +105,10 @@ impl Message {
             | MessageType::Internal
             | MessageType::Redirect => {
                 size = Some(h_data);
-                let msg_body_raw = String::from_utf8(rsp_data[..h_data.into()].to_vec())?;
+                let msg_body_raw = match String::from_utf8(rsp_data[..h_data.into()].to_vec()) {
+                    Ok(msg_body_raw) => msg_body_raw,
+                    Err(_) => return Err(BlynkError::InvalidMessageBody),
+                };
                 msg_body = msg_body_raw.split('\0').map(String::from).collect();
             }
             _ => panic!("Unknown message type {:?}", msg_type),

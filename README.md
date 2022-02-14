@@ -173,7 +173,7 @@ Make sure you have your `rust` environment configurated
 - [x] add tests
 - [x] add rustdocs
 - [x] CI integration with GithHub Actions
-- [ ] better error generation & handling
+- [x] better error generation & handling
 - [ ] add async support once it's stable in esp-rs
 - [ ] better test coverage
 - [ ] ssl implementation

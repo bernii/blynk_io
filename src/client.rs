@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::fmt;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::{Shutdown, TcpStream};
@@ -9,7 +9,24 @@ use log::*;
 
 use crate::conf;
 use crate::message::{Message, MessageType, ProtocolHeader};
+use crate::{BlynkError, Result};
+
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Debug)]
+struct ClientError;
+
+impl fmt::Display for ClientError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "client encountered an error")
+    }
+}
+
+// impl Error for ClientError {
+//     fn description(&self) -> &str {
+//         "client error lol"
+//     }
+// }
 
 #[derive(Default)]
 /// Implements state of the connection abstraction with Blynk.io servers.
@@ -43,12 +60,12 @@ pub trait Protocol {
         self.set_reader(BufReader::new(stream));
     }
 
-    fn read(&mut self) -> Result<Message, Box<dyn Error>> {
-        let reader = self.reader().ok_or("Unable to access reader")?;
+    fn read(&mut self) -> Result<Message> {
+        let reader = self.reader().ok_or(BlynkError::ReaderNotAvailable)?;
 
         let buf = reader.fill_buf()?;
         if buf.is_empty() {
-            return Err("No message to process".into());
+            return Err(BlynkError::EmptyBuffer);
         }
         let msg = Message::deserilize(buf)?;
 
@@ -64,19 +81,19 @@ pub trait Protocol {
         Ok(msg)
     }
 
-    fn stream(&mut self) -> Result<&mut Self::T, Box<dyn Error>> {
+    fn stream(&mut self) -> Result<&mut Self::T> {
         if let Some(r) = self.reader() {
             return Ok(r.get_mut());
         }
-        Err("Stream not available".into())
+        Err(BlynkError::StreamIsNone)
     }
 
-    fn login(&mut self, token: &str) -> Result<(), Box<dyn Error>> {
+    fn login(&mut self, token: &str) -> Result<()> {
         let msg = Message::new(MessageType::Login, self.msg_id(), None, None, vec![token]);
         self.send(msg.serialize())
     }
 
-    fn heartbeat(&mut self, heartbeat: Duration, rcv_buffer: u16) -> Result<(), Box<dyn Error>> {
+    fn heartbeat(&mut self, heartbeat: Duration, rcv_buffer: u16) -> Result<()> {
         let msg = Message::new(
             MessageType::Internal,
             self.msg_id(),
@@ -97,12 +114,12 @@ pub trait Protocol {
         self.send(msg.serialize())
     }
 
-    fn ping(&mut self) -> Result<(), Box<dyn Error>> {
+    fn ping(&mut self) -> Result<()> {
         let msg = Message::new(MessageType::Ping, self.msg_id(), None, None, vec![]);
         self.send(msg.serialize())
     }
 
-    fn response(&mut self, status: u16, msg_id: u16) -> Result<(), Box<dyn Error>> {
+    fn response(&mut self, status: u16, msg_id: u16) -> Result<()> {
         let msg = Message::new(
             MessageType::Rsp,
             msg_id,
@@ -113,7 +130,7 @@ pub trait Protocol {
         self.send(msg.serialize())
     }
 
-    fn virtual_write(&mut self, v_pin: u8, val: &str) -> Result<(), Box<dyn Error>> {
+    fn virtual_write(&mut self, v_pin: u8, val: &str) -> Result<()> {
         let msg = Message::new(
             MessageType::Hw,
             self.msg_id(),
@@ -124,7 +141,7 @@ pub trait Protocol {
         self.send(msg.serialize())
     }
 
-    fn virtual_sync(&mut self, pins: Vec<u32>) -> Result<(), Box<dyn Error>> {
+    fn virtual_sync(&mut self, pins: Vec<u32>) -> Result<()> {
         let pins: String = pins
             .into_iter()
             .map(|x| std::char::from_digit(x, 10).unwrap())
@@ -140,7 +157,7 @@ pub trait Protocol {
         self.send(msg.serialize())
     }
 
-    fn email(&mut self, to: &str, subject: &str, body: &str) -> Result<(), Box<dyn Error>> {
+    fn email(&mut self, to: &str, subject: &str, body: &str) -> Result<()> {
         let msg = Message::new(
             MessageType::Email,
             self.msg_id(),
@@ -151,17 +168,17 @@ pub trait Protocol {
         self.send(msg.serialize())
     }
 
-    fn tweet(&mut self, msg: &str) -> Result<(), Box<dyn Error>> {
+    fn tweet(&mut self, msg: &str) -> Result<()> {
         let msg = Message::new(MessageType::Tweet, self.msg_id(), None, None, vec![msg]);
         self.send(msg.serialize())
     }
 
-    fn notify(&mut self, msg: &str) -> Result<(), Box<dyn Error>> {
+    fn notify(&mut self, msg: &str) -> Result<()> {
         let msg = Message::new(MessageType::Notify, self.msg_id(), None, None, vec![msg]);
         self.send(msg.serialize())
     }
 
-    fn set_property(&mut self, pin: u8, prop: &str, val: &str) -> Result<(), Box<dyn Error>> {
+    fn set_property(&mut self, pin: u8, prop: &str, val: &str) -> Result<()> {
         let msg = Message::new(
             MessageType::Property,
             self.msg_id(),
@@ -172,12 +189,12 @@ pub trait Protocol {
         self.send(msg.serialize())
     }
 
-    fn internal(&mut self, data: Vec<&str>) -> Result<(), Box<dyn Error>> {
+    fn internal(&mut self, data: Vec<&str>) -> Result<()> {
         let msg = Message::new(MessageType::Internal, self.msg_id(), None, None, data);
         self.send(msg.serialize())
     }
 
-    fn send(&mut self, msg: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    fn send(&mut self, msg: Vec<u8>) -> Result<()> {
         let mut retries = conf::RETRIES_TX_MAX_NUM;
         let stream = self.stream()?;
         while retries > 0 {
@@ -196,7 +213,7 @@ pub trait Protocol {
             debug!("Sent message, awaiting reply...!!");
             return Ok(());
         }
-        Err("Unable to send the message".into())
+        Err(BlynkError::MessageSend)
     }
 }
 
