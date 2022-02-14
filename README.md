@@ -21,6 +21,7 @@
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
+[![Build Status][build-status]][build-status-url]
 [![MIT License][license-shield]][license-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
 
@@ -171,7 +172,7 @@ Make sure you have your `rust` environment configurated
 
 - [x] add tests
 - [x] add rustdocs
-- [ ] CI integration with GithHub
+- [x] CI integration with GithHub Actions
 - [ ] better error generation & handling
 - [ ] add async support once it's stable in esp-rs
 - [ ] better test coverage
@@ -231,3 +232,5 @@ Project Link: [https://github.com/bernii/blynk_io](https://github.com/bernii/bly
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
 [linkedin-url]: https://linkedin.com/in/bernii
 [product-screenshot]: images/screenshot.png
+[build-status]: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fbernii%2Fblynk_io%2Fbadge%3Fref%3Dmain&style=for-the-badge
+[build-status-url]: https://actions-badge.atrox.dev/bernii/blynk_io/goto?ref=main
