@@ -12,7 +12,7 @@
 //! ```ignore
 //! use blynk_io::*;
 //! ...
-//! let mut blynk = Blynk::new("AUTH_TOKEN".to_string());
+//! let mut blynk = <Blynk>::new("AUTH_TOKEN".to_string());
 //!
 //! fn main() {
 //!    loop {
@@ -58,12 +58,11 @@ mod conf {
     use std::time::Duration;
 
     pub const SOCK_MAX_TIMEOUT: Duration = Duration::from_secs(5);
-    pub const SOCK_TIMEOUT: Duration = Duration::from_millis(15000);
+    pub const SOCK_TIMEOUT: Duration = Duration::from_millis(1000);
     // const SOCK_SSL_TIMEOUT: u8 = 1; TODO: implement if SSL is neeeded
     pub const RETRIES_TX_DELAY: Duration = Duration::from_millis(2);
     pub const RETRIES_TX_MAX_NUM: u8 = 3;
     pub const RECONNECT_SLEEP: Duration = Duration::from_secs(1);
-    pub const READ_TIMEOUT: Duration = Duration::from_millis(500);
     pub const HEARTBEAT_PERIOD: Duration = Duration::from_secs(5);
 }
 
@@ -82,13 +81,18 @@ mod conf {
 /// }
 /// ```
 #[allow(unused_variables)]
-pub trait Event {
+pub trait Event: Send {
     fn handle_connect(&mut self, client: &mut Client) {}
     fn handle_disconnect(&mut self) {}
     fn handle_internal(&mut self, client: &mut Client, data: &[String]) {}
     fn handle_vpin_read(&mut self, client: &mut Client, pin_num: u8) {}
     fn handle_vpin_write(&mut self, client: &mut Client, pin_num: u8, data: &str) {}
 }
+
+/// Default events handler implementation that can be used
+/// to define type if no client implementation is provided
+pub struct DefaultHandler {}
+impl Event for DefaultHandler {}
 
 use std::result;
 use std::{fmt, io};
@@ -145,32 +149,32 @@ type Result<T> = result::Result<T, BlynkError>;
 /// ```
 /// use blynk_io::Blynk;
 ///
-/// let mut blynk = Blynk::new("BYNK TOKEN".to_string());
+/// let mut blynk = <Blynk>::new("BYNK TOKEN".to_string());
 /// loop {
 ///     blynk.run();
 ///     break; // remove this in your actual program
 /// }
 /// ```
 
-pub struct Blynk<'a> {
+pub struct Blynk<E: Event = DefaultHandler> {
     conn_state: ConnectionState,
     config: Config,
 
     client: Client,
 
-    events_hook: Option<&'a mut dyn Event>,
+    pub handler: Option<E>,
 
     last_rcv_time: Instant,
     last_ping_time: Instant,
     last_send_time: Instant,
 }
 
-impl<'a> Blynk<'a> {
+impl<E: Event> Blynk<E> {
     /// Returns the Blynk client initalized with API token
     ///
     /// # Arguments
     /// * `auth_token` - A string that holds the Blynk API token
-    pub fn new(auth_token: String) -> Blynk<'a> {
+    pub fn new(auth_token: String) -> Blynk<E> {
         Self {
             conn_state: ConnectionState::Disconnected,
             config: Config {
@@ -179,7 +183,7 @@ impl<'a> Blynk<'a> {
             },
 
             client: Client::default(),
-            events_hook: None,
+            handler: None,
 
             last_rcv_time: Instant::now(),
             last_ping_time: Instant::now(),
@@ -215,15 +219,24 @@ impl<'a> Blynk<'a> {
 
         self.read_response();
         if !self.is_server_alive() {
+            info!("Blynk is offline for some reson :(");
             self.disconnect("Blynk server is offline");
         }
     }
 
-    /// Sets the events hook for incoming events from the Blynk platform
+    /// Sets the events handler for incoming events from the Blynk platform
     ///
     /// See `Event` trait documentation for example implementation
-    pub fn set_events_hook(&mut self, hook: &'a mut dyn Event) {
-        self.events_hook = Some(hook);
+    pub fn set_handler(&mut self, hook: E) {
+        self.handler = Some(hook);
+    }
+
+    /// Gets a mutable referance to handler if it's defined
+    pub fn handler(&mut self) -> Option<&mut E> {
+        match &self.handler {
+            Some(_) => self.handler.as_mut(),
+            None => None,
+        }
     }
 
     /// Connects to Blynk servers
@@ -253,7 +266,7 @@ impl<'a> Blynk<'a> {
 
         self.last_rcv_time = Instant::now();
 
-        if let Some(hook) = &mut self.events_hook {
+        if let Some(hook) = &mut self.handler {
             hook.handle_connect(&mut self.client);
         }
         Ok(())
@@ -263,7 +276,7 @@ impl<'a> Blynk<'a> {
     ///
     /// Calls disconnect hook
     fn disconnect(&mut self, msg: &str) {
-        if let Some(hook) = &mut self.events_hook {
+        if let Some(hook) = &mut self.handler {
             hook.handle_disconnect();
         }
 
@@ -328,22 +341,19 @@ impl<'a> Blynk<'a> {
             }
 
             self.last_ping_time = Instant::now();
-            info!("Heartbeat delta: {}", ping_delta);
+            info!("Heartbeat delta: {}ms", ping_delta);
         }
 
         true
     }
 
     fn read_response(&mut self) {
-        let start = Instant::now();
-        while start.elapsed() <= conf::READ_TIMEOUT {
-            self.last_rcv_time = Instant::now();
-            self.client.set_read_timeout(Duration::from_millis(5));
+        self.last_rcv_time = Instant::now();
+        self.client.set_read_timeout(Duration::from_millis(5));
 
-            if let Ok(msg) = self.client.read() {
-                if let Err(err) = self.process(msg) {
-                    error!("Problem handling req from API: {}", err);
-                }
+        if let Ok(msg) = self.client.read() {
+            if let Err(err) = self.process(msg) {
+                error!("Problem handling req from API: {}", err);
             }
         }
     }
@@ -354,7 +364,7 @@ impl<'a> Blynk<'a> {
                 .response(ProtocolStatus::StatusOk as u16, msg.id)?;
         }
 
-        if let Some(hook) = &mut self.events_hook {
+        if let Some(hook) = &mut self.handler {
             match msg.mtype {
                 MessageType::Internal => {
                     hook.handle_internal(&mut self.client, &msg.body[1..]);
@@ -405,23 +415,23 @@ mod tests {
         let msg = Message::new(MessageType::Hw, 1, None, None, vec!["vr", "22"]);
         let mut blynk = Blynk::new("abc".to_string());
 
-        let mut handler: EventsHandler = Default::default();
-        blynk.set_events_hook(&mut handler);
+        let handler: EventsHandler = Default::default();
+        blynk.set_handler(handler);
         blynk.process(msg).unwrap();
 
-        assert_eq!(22, handler.pin_num);
+        assert_eq!(22, blynk.handler().unwrap().pin_num);
     }
     #[test]
     fn calls_vpinwrite_handler_with_params() {
         let msg = Message::new(MessageType::Hw, 1, None, None, vec!["vw", "42", "my-val"]);
         let mut blynk = Blynk::new("abc".to_string());
 
-        let mut handler: EventsHandler = Default::default();
-        blynk.set_events_hook(&mut handler);
+        let handler: EventsHandler = Default::default();
+        blynk.set_handler(handler);
         blynk.process(msg).unwrap();
 
-        assert_eq!(42, handler.pin_num);
-        assert_eq!("my-val", handler.data);
+        assert_eq!(42, blynk.handler().unwrap().pin_num);
+        assert_eq!("my-val", blynk.handler().unwrap().data);
     }
     #[test]
     fn calls_internal_handler_with_params() {
@@ -434,10 +444,10 @@ mod tests {
         );
         let mut blynk = Blynk::new("abc".to_string());
 
-        let mut handler: EventsHandler = Default::default();
-        blynk.set_events_hook(&mut handler);
+        let handler: EventsHandler = Default::default();
+        blynk.set_handler(handler);
         blynk.process(msg).unwrap();
 
-        assert_eq!("hello world", handler.data);
+        assert_eq!("hello world", blynk.handler().unwrap().data);
     }
 }

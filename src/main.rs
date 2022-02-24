@@ -50,7 +50,7 @@ fn main() {
     blynk.set_config(config);
 
     let mut handler = EventsHandler { i: Instant::now() };
-    blynk.set_events_hook(&mut handler);
+    blynk.set_handler(handler);
 
     loop {
         blynk.run();

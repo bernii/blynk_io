@@ -111,13 +111,13 @@ Make sure you have your `rust` environment configurated
     ```toml
     ...
     [dependencies]
-    blynk_io = "0.1.0"
+    blynk_io = "0.2.0"
     ```
 2. Use the library in you code
     ```rust
     use blynk_io::*;
     ...
-    let mut blynk = Blynk::new("AUTH_TOKEN".to_string());
+    let mut blynk = <Blynk>::new("AUTH_TOKEN".to_string());
 
     fn main() {
         loop {
