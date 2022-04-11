@@ -217,6 +217,7 @@ impl<E: Event> Blynk<E> {
         Ok(())
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn is_server_alive(&mut self) -> bool {
         let hbeat_ms = conf::HEARTBEAT_PERIOD.as_millis();
         let rcv_delta = self.last_rcv_time.elapsed().as_millis();
