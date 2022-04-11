@@ -23,13 +23,12 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn set_read_timeout(&mut self, _duration: Duration) {
-    }
+    pub fn set_read_timeout(&mut self, _duration: Duration) {}
 }
 
 /// Provides implementation of all known blynk.io api protocol methods
 use async_trait::async_trait;
-use smol::io::{AsyncBufReadExt, AsyncWriteExt, AsyncSeekExt};
+use smol::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt};
 
 #[async_trait]
 pub trait Protocol {
