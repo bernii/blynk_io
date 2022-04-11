@@ -43,6 +43,11 @@ jobs:
         with:
           command: test
 
+      - name: Run cargo test (async)
+        uses: actions-rs/cargo@v1
+        with:
+          command: test --features async
+
   lints:
     name: Lints
     runs-on: ubuntu-latest

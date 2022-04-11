@@ -111,7 +111,7 @@ Make sure you have your `rust` environment configurated
     ```toml
     ...
     [dependencies]
-    blynk_io = "0.2.0"
+    blynk_io = "0.3.0"
     ```
 2. Use the library in you code
     ```rust
@@ -140,11 +140,16 @@ Make sure you have your `rust` environment configurated
     ```bash
     $ cargo install blynk_io
     ```
-2. Run the provided binary example with provided `AUTH_TOKEN`
+3. Run the provided binary example with provided `AUTH_TOKEN`
    ```bash
    $ blynk_io --features build-binary AUTH_TOKEN
    ```
-3. You should see an output similar to the followig one
+   (**Optional**) if you want to run the client in async mode, start the folllowing
+   example
+   ```bash
+   $ blynk_io --features build-binary,async AUTH_TOKEN
+   ```
+4. You should see an output similar to the followig one
     ```log
     2022-02-10T16:24:27.352Z INFO [blynk_io::config] No server name provided, using default (blynk-cloud.com)
     2022-02-10T16:24:27.353Z INFO [blynk_io::config] No server name provided, using default (80)
@@ -174,7 +179,7 @@ Make sure you have your `rust` environment configurated
 - [x] add rustdocs
 - [x] CI integration with GithHub Actions
 - [x] better error generation & handling
-- [ ] add async support once it's stable in esp-rs
+- [x] add async support once it's stable in esp-rs
 - [ ] better test coverage
 - [ ] ssl implementation
 

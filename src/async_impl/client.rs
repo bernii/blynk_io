@@ -1,7 +1,4 @@
-use std::fmt;
-use std::io::prelude::*;
-use std::io::BufReader;
-use std::net::{Shutdown, TcpStream};
+use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
 
@@ -13,43 +10,30 @@ use crate::{BlynkError, Result};
 
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Debug)]
-struct ClientError;
-
-impl fmt::Display for ClientError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "client encountered an error")
-    }
-}
-
-// impl Error for ClientError {
-//     fn description(&self) -> &str {
-//         "client error lol"
-//     }
-// }
-
+use smol::io::BufReader;
+use smol::prelude::{AsyncRead, AsyncWrite};
+use smol::Async;
 #[derive(Default)]
 /// Implements state of the connection abstraction with Blynk.io servers.
 /// Implementes protocol methods that you can use in order to
 /// communicate with those servers
 pub struct Client {
     msg_id: u16,
-    reader: Option<BufReader<TcpStream>>,
+    reader: Option<BufReader<Async<TcpStream>>>,
 }
 
 impl Client {
-    pub fn set_read_timeout(&mut self, duration: Duration) {
-        if let Ok(stream) = self.stream() {
-            stream
-                .set_read_timeout(Some(duration))
-                .expect("read timeout problem");
-        }
+    pub fn set_read_timeout(&mut self, _duration: Duration) {
     }
 }
 
 /// Provides implementation of all known blynk.io api protocol methods
+use async_trait::async_trait;
+use smol::io::{AsyncBufReadExt, AsyncWriteExt, AsyncSeekExt};
+
+#[async_trait]
 pub trait Protocol {
-    type T: std::io::Read + std::io::Write;
+    type T: AsyncRead + AsyncWrite + Unpin + Send;
 
     fn set_reader(&mut self, reader: BufReader<Self::T>);
     fn msg_id(&mut self) -> u16;
@@ -60,12 +44,12 @@ pub trait Protocol {
         self.set_reader(BufReader::new(stream));
     }
 
-    fn read(&mut self) -> Result<Message> {
+    async fn read(&mut self) -> Result<Message> {
         let reader = self.reader().ok_or(BlynkError::ReaderNotAvailable)?;
 
-        let buf = reader.fill_buf()?;
+        let buf = reader.fill_buf().await?;
         if buf.is_empty() {
-            return Err(BlynkError::EmptyBuffer);
+            return Err(BlynkError::EmptyBuffer.into());
         }
         let msg = Message::deserilize(buf)?;
 
@@ -85,15 +69,15 @@ pub trait Protocol {
         if let Some(r) = self.reader() {
             return Ok(r.get_mut());
         }
-        Err(BlynkError::StreamIsNone)
+        Err(BlynkError::StreamIsNone.into())
     }
 
-    fn login(&mut self, token: &str) -> Result<()> {
+    async fn login(&mut self, token: &str) -> Result<()> {
         let msg = Message::new(MessageType::Login, self.msg_id(), None, None, vec![token]);
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn heartbeat(&mut self, heartbeat: Duration, rcv_buffer: u16) -> Result<()> {
+    async fn heartbeat(&mut self, heartbeat: Duration, rcv_buffer: u16) -> Result<()> {
         let msg = Message::new(
             MessageType::Internal,
             self.msg_id(),
@@ -111,15 +95,15 @@ pub trait Protocol {
             ],
         );
 
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn ping(&mut self) -> Result<()> {
+    async fn ping(&mut self) -> Result<()> {
         let msg = Message::new(MessageType::Ping, self.msg_id(), None, None, vec![]);
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn response(&mut self, status: u16, msg_id: u16) -> Result<()> {
+    async fn response(&mut self, status: u16, msg_id: u16) -> Result<()> {
         let msg = Message::new(
             MessageType::Rsp,
             msg_id,
@@ -127,10 +111,10 @@ pub trait Protocol {
             None,
             vec![&status.to_string()],
         );
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn virtual_write(&mut self, v_pin: u8, val: &str) -> Result<()> {
+    async fn virtual_write(&mut self, v_pin: u8, val: &str) -> Result<()> {
         let msg = Message::new(
             MessageType::Hw,
             self.msg_id(),
@@ -138,10 +122,10 @@ pub trait Protocol {
             None,
             vec!["vw", &v_pin.to_string(), val],
         );
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn virtual_sync(&mut self, pins: Vec<u32>) -> Result<()> {
+    async fn virtual_sync(&mut self, pins: Vec<u32>) -> Result<()> {
         let pins: String = pins
             .into_iter()
             .map(|x| std::char::from_digit(x, 10).unwrap())
@@ -154,10 +138,10 @@ pub trait Protocol {
             None,
             vec!["vr", &pins],
         );
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn email(&mut self, to: &str, subject: &str, body: &str) -> Result<()> {
+    async fn email(&mut self, to: &str, subject: &str, body: &str) -> Result<()> {
         let msg = Message::new(
             MessageType::Email,
             self.msg_id(),
@@ -165,20 +149,20 @@ pub trait Protocol {
             None,
             vec![to, subject, body],
         );
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn tweet(&mut self, msg: &str) -> Result<()> {
+    async fn tweet(&mut self, msg: &str) -> Result<()> {
         let msg = Message::new(MessageType::Tweet, self.msg_id(), None, None, vec![msg]);
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn notify(&mut self, msg: &str) -> Result<()> {
+    async fn notify(&mut self, msg: &str) -> Result<()> {
         let msg = Message::new(MessageType::Notify, self.msg_id(), None, None, vec![msg]);
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn set_property(&mut self, pin: u8, prop: &str, val: &str) -> Result<()> {
+    async fn set_property(&mut self, pin: u8, prop: &str, val: &str) -> Result<()> {
         let msg = Message::new(
             MessageType::Property,
             self.msg_id(),
@@ -186,45 +170,45 @@ pub trait Protocol {
             None,
             vec![&pin.to_string(), prop, val],
         );
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn internal(&mut self, data: Vec<&str>) -> Result<()> {
+    async fn internal(&mut self, data: Vec<&str>) -> Result<()> {
         let msg = Message::new(MessageType::Internal, self.msg_id(), None, None, data);
-        self.send(msg.serialize())
+        self.send(msg.serialize()).await
     }
 
-    fn send(&mut self, msg: Vec<u8>) -> Result<()> {
+    async fn send(&mut self, msg: Vec<u8>) -> Result<()> {
         let mut retries = conf::RETRIES_TX_MAX_NUM;
         let stream = self.stream()?;
         while retries > 0 {
-            if let Err(err) = stream.write(&msg) {
+            if let Err(err) = stream.write(&msg).await {
                 error!("Problem sending!: {}", err);
                 retries -= 1;
                 thread::sleep(conf::RETRIES_TX_DELAY);
                 continue;
             }
-            if let Err(err) = stream.flush() {
+            if let Err(err) = stream.flush().await {
                 error!("Problem sending!: {}", err);
                 retries -= 1;
                 thread::sleep(conf::RETRIES_TX_DELAY);
                 continue;
             }
-            debug!("Sent message, awaiting reply...!!");
+            info!("Sent message, awaiting reply...!!");
             return Ok(());
         }
-        Err(BlynkError::MessageSend)
+        Err(BlynkError::MessageSend.into())
     }
 }
 
 impl Protocol for Client {
-    type T = TcpStream;
+    type T = Async<TcpStream>;
 
-    fn set_reader(&mut self, reader: BufReader<TcpStream>) {
+    fn set_reader(&mut self, reader: BufReader<Async<TcpStream>>) {
         self.reader = Some(reader);
     }
 
-    fn reader(&mut self) -> Option<&mut BufReader<TcpStream>> {
+    fn reader(&mut self) -> Option<&mut BufReader<Async<TcpStream>>> {
         self.reader.as_mut()
     }
 
@@ -235,9 +219,7 @@ impl Protocol for Client {
 
     fn disconnect(&mut self) {
         if let Ok(stream) = self.stream() {
-            stream
-                .shutdown(Shutdown::Both)
-                .unwrap_or_else(|err| error!("shutdown call failed, with err {}", err));
+            drop(stream);
         }
         self.msg_id = 0;
     }
@@ -246,7 +228,7 @@ impl Protocol for Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Cursor, SeekFrom};
+    use smol::io::{Cursor, SeekFrom};
 
     pub struct FakeClient {
         msg_id: u16,
@@ -272,35 +254,35 @@ mod tests {
         }
     }
 
-    #[test]
-    fn msg_id_incremeneted_on_send() {
+    #[smol_potat::test]
+    async fn msg_id_incremeneted_on_send() {
         let mut client = Client {
             msg_id: 3,
             reader: None,
         };
-        client.ping().unwrap_or_default();
+        client.ping().await.unwrap_or_default();
         assert_eq!(4, client.msg_id)
     }
-    #[test]
-    fn msg_id_customized() {
+    #[smol_potat::test]
+    async fn msg_id_customized() {
         let mut client = Client {
             msg_id: 3,
             reader: None,
         };
-        client.response(200, 42).unwrap_or_default();
+        client.response(200, 42).await.unwrap_or_default();
         // inspect the message
         assert_eq!(3, client.msg_id)
     }
-    #[test]
-    fn propagate_send_err() {
+    #[smol_potat::test]
+    async fn propagate_send_err() {
         let mut client = Client {
             msg_id: 3,
             reader: None,
         };
-        assert!(client.ping().is_err());
+        assert!(client.ping().await.is_err());
     }
-    #[test]
-    fn ping_generates_seralized_message() {
+    #[smol_potat::test]
+    async fn ping_generates_seralized_message() {
         let reader = BufReader::with_capacity(10, Cursor::new(vec![0; 10]));
         let mut client = FakeClient {
             msg_id: 0,
@@ -308,30 +290,30 @@ mod tests {
         };
 
         // intercept message into fake client
-        client.ping().unwrap();
+        client.ping().await.unwrap();
 
         let mut reader = client.reader.unwrap();
-        reader.seek(SeekFrom::Start(0)).unwrap(); // rewind the buffer
-        let buf = reader.fill_buf().unwrap();
+        reader.seek(SeekFrom::Start(0)).await.unwrap(); // rewind the buffer
+        let buf = reader.fill_buf().await.unwrap();
 
         let msg = Message::new(MessageType::Ping, 1, None, None, vec![""]);
         let data = msg.serialize();
         // compare generated headers
         assert_eq!(&data[..5], &buf[..5]);
     }
-    #[test]
-    fn read_empty_buffer_errors() {
+    #[smol_potat::test]
+    async fn read_empty_buffer_errors() {
         // try to read when the buffer is empty
         let reader = BufReader::with_capacity(0, Cursor::new(vec![0]));
         let mut client = FakeClient {
             msg_id: 0,
             reader: Some(reader),
         };
-        let err = client.read().err().unwrap();
+        let err = client.read().await.err().unwrap();
         assert_eq!("No message to process", err.to_string());
     }
-    #[test]
-    fn read_message() {
+    #[smol_potat::test]
+    async fn read_message() {
         // succesful message read
 
         // put fake message into the buff
@@ -343,6 +325,6 @@ mod tests {
             msg_id: 0,
             reader: Some(reader),
         };
-        assert!(client.read().is_ok());
+        assert!(client.read().await.is_ok());
     }
 }
